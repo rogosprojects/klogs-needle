@@ -55,7 +55,7 @@ go build -o klogs-needle
 ### Using Go Install
 
 ```bash
-go install https://github.com/rogosprojects/klogs-needle@latest
+go install github.com/rogosprojects/klogs-needle@latest
 ```
 
 ## 🚀 Usage

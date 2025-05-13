@@ -1,4 +1,4 @@
-module github.com/klogs-needle
+module github.com/rogosprojects/klogs-needle
 
 go 1.24.0
 
