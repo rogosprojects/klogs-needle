@@ -411,19 +411,11 @@ func getPodsFromDeployment(ctx context.Context, clientset *kubernetes.Clientset,
 		return nil, fmt.Errorf("failed to list pods for deployment '%s': %v", deploymentName, err)
 	}
 
-	// Filter out terminating pods
-	activePods := []corev1.Pod{}
-	for _, pod := range pods.Items {
-		if pod.DeletionTimestamp == nil {
-			activePods = append(activePods, pod)
-		}
+	if len(pods.Items) == 0 {
+		return nil, fmt.Errorf("no pods found for deployment '%s'", deploymentName)
 	}
 
-	if len(activePods) == 0 {
-		return nil, fmt.Errorf("no active pods found for deployment '%s'", deploymentName)
-	}
-
-	return activePods, nil
+	return pods.Items, nil
 }
 
 // Get pods from a statefulset
@@ -446,19 +438,11 @@ func getPodsFromStatefulSet(ctx context.Context, clientset *kubernetes.Clientset
 		return nil, fmt.Errorf("failed to list pods for statefulset '%s': %v", statefulSetName, err)
 	}
 
-	// Filter out terminating pods
-	activePods := []corev1.Pod{}
-	for _, pod := range pods.Items {
-		if pod.DeletionTimestamp == nil {
-			activePods = append(activePods, pod)
-		}
+	if len(pods.Items) == 0 {
+		return nil, fmt.Errorf("no pods found for statefulset '%s'", statefulSetName)
 	}
 
-	if len(activePods) == 0 {
-		return nil, fmt.Errorf("no active pods found for statefulset '%s'", statefulSetName)
-	}
-
-	return activePods, nil
+	return pods.Items, nil
 }
 
 // Search for pattern in logs of a single pod
@@ -467,11 +451,6 @@ func searchSinglePodLogs(ctx context.Context, clientset *kubernetes.Clientset, p
 	pod, err := clientset.CoreV1().Pods(args.Namespace).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
 		return false, fmt.Errorf("failed to find pod '%s' in namespace '%s': %v", podName, args.Namespace, err)
-	}
-
-	// Skip terminating pods
-	if pod.DeletionTimestamp != nil {
-		return false, fmt.Errorf("pod '%s' is terminating, skipping log search", podName)
 	}
 
 	// Validate container name if provided
