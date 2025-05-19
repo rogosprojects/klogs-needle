@@ -55,7 +55,7 @@ jobs:
         goos: ${{ matrix.goos }}
         goarch: ${{ matrix.goarch }}
         goversion: "1.24"
-        asset_name: '${{ env.REPOSITORY_NAME }}-${{ env.RELEASE_TAG }}-${{ env.OS_NAME }}-${{ matrix.goarch }}'
+        asset_name: '${{ env.REPOSITORY_NAME }}-${{ env.OS_NAME }}-${{ matrix.goarch }}'
         compress_assets: FALSE
         executable_compression: upx -v
         md5sum: false
