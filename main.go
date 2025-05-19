@@ -95,27 +95,26 @@ func main() {
 	}
 
 	if found {
-		if args.Debug {
-			if args.PodName != "" {
-				fmt.Printf("Success: Found pattern '%s' in logs of pod %s\n", args.SearchPattern, args.PodName)
+		if args.PodName != "" {
+			fmt.Printf("Success: Found pattern '%s' in logs of pod %s\n", args.SearchPattern, args.PodName)
+		} else {
+			var resourceType ResourceType
+			var resourceName string
+
+			if args.DeploymentName != "" {
+				resourceType = ResourceTypeDeployment
+				resourceName = args.DeploymentName
 			} else {
-				var resourceType ResourceType
-				var resourceName string
-
-				if args.DeploymentName != "" {
-					resourceType = ResourceTypeDeployment
-					resourceName = args.DeploymentName
-				} else {
-					resourceType = ResourceTypeStatefulSet
-					resourceName = args.StatefulSetName
-				}
-
-				fmt.Printf("Success: Found pattern '%s' in logs of all pods in %s %s\n",
-					args.SearchPattern, resourceType, resourceName)
+				resourceType = ResourceTypeStatefulSet
+				resourceName = args.StatefulSetName
 			}
+
+			fmt.Printf("Success: Found pattern '%s' in logs of all active pods in %s %s\n",
+				args.SearchPattern, resourceType, resourceName)
 		}
 		os.Exit(0)
 	} else {
+		// Timeout or pattern not found
 		if args.PodName != "" {
 			fmt.Fprintf(os.Stderr, "Timeout: Pattern '%s' not found in logs of pod %s within %d seconds\n",
 				args.SearchPattern, args.PodName, args.TimeoutSecs)
@@ -131,7 +130,7 @@ func main() {
 				resourceName = args.StatefulSetName
 			}
 
-			fmt.Fprintf(os.Stderr, "Timeout: Pattern '%s' not found in logs of all pods in %s %s within %d seconds\n",
+			fmt.Fprintf(os.Stderr, "Timeout: Pattern '%s' not found in logs of all active pods in %s %s within %d seconds\n",
 				args.SearchPattern, resourceType, resourceName, args.TimeoutSecs)
 		}
 		os.Exit(3)
@@ -396,12 +395,23 @@ func searchResourcePodLogs(ctx context.Context, clientset *kubernetes.Clientset,
 				// Success count is incremented in the goroutine when found
 			}
 
-			// Check if we're done due to errors
-			if atomic.LoadInt32(&errorCount)+atomic.LoadInt32(&successCount) == int32(podCount) {
+			// Check if we're done due to errors or success
+			totalProcessed := atomic.LoadInt32(&errorCount) + atomic.LoadInt32(&successCount)
+			if totalProcessed == int32(podCount) {
+				// All pods have been processed
 				if atomic.LoadInt32(&errorCount) > 0 {
+					// Some pods had errors
 					return false, fmt.Errorf("failed to search logs in %d out of %d pods",
 						atomic.LoadInt32(&errorCount), podCount)
 				}
+
+				// All pods were processed successfully
+				if atomic.LoadInt32(&successCount) == int32(podCount) {
+					// All pods found the pattern
+					return true, nil
+				}
+
+				// Some pods didn't find the pattern (but had no errors)
 				return false, nil
 			}
 		}
@@ -431,13 +441,62 @@ func getPodsFromDeployment(ctx context.Context, clientset *kubernetes.Clientset,
 		return nil, fmt.Errorf("failed to list pods for deployment '%s': %v", deploymentName, err)
 	}
 
-	// Filter out terminating pods
+	// Get the ReplicaSet that's currently owned by the deployment
+	replicaSets, err := clientset.AppsV1().ReplicaSets(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector.String(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list ReplicaSets for deployment '%s': %v", deploymentName, err)
+	}
+
+	// Find the active ReplicaSet (the one with the most replicas)
+	var activeReplicaSet *appsv1.ReplicaSet
+	for i := range replicaSets.Items {
+		rs := &replicaSets.Items[i]
+		// Check if this ReplicaSet is owned by our deployment
+		for _, owner := range rs.OwnerReferences {
+			if owner.Kind == "Deployment" && owner.Name == deploymentName {
+				if activeReplicaSet == nil || *rs.Spec.Replicas > *activeReplicaSet.Spec.Replicas {
+					activeReplicaSet = rs
+				}
+				break
+			}
+		}
+	}
+
+	if activeReplicaSet == nil {
+		return nil, fmt.Errorf("no active ReplicaSet found for deployment '%s'", deploymentName)
+	}
+
+	// Filter pods to only include those from the active ReplicaSet and not terminating
 	activePods := []corev1.Pod{}
 	for _, pod := range pods.Items {
+		// Skip pods that are being deleted
+		if pod.DeletionTimestamp != nil {
+			fmt.Printf("Skipping terminating pod '%s' (has deletion timestamp)\n", pod.Name)
+			continue
+		}
+
+		// Skip pods that are not in Running phase
 		if pod.Status.Phase != corev1.PodRunning {
 			fmt.Printf("Skipping non-running pod '%s' (phase: %s)\n", pod.Name, pod.Status.Phase)
 			continue
 		}
+
+		// Check if this pod is owned by the active ReplicaSet
+		isOwnedByActiveRS := false
+		for _, owner := range pod.OwnerReferences {
+			if owner.Kind == "ReplicaSet" && owner.Name == activeReplicaSet.Name {
+				isOwnedByActiveRS = true
+				break
+			}
+		}
+
+		if !isOwnedByActiveRS {
+			fmt.Printf("Skipping pod '%s' (not owned by the active ReplicaSet '%s')\n", pod.Name, activeReplicaSet.Name)
+			continue
+		}
+
 		activePods = append(activePods, pod)
 	}
 
@@ -445,6 +504,8 @@ func getPodsFromDeployment(ctx context.Context, clientset *kubernetes.Clientset,
 		return nil, fmt.Errorf("no active pods found for deployment '%s'", deploymentName)
 	}
 
+	fmt.Printf("Found %d active pods from ReplicaSet '%s' for deployment '%s'\n",
+		len(activePods), activeReplicaSet.Name, deploymentName)
 	return activePods, nil
 }
 
@@ -471,6 +532,13 @@ func getPodsFromStatefulSet(ctx context.Context, clientset *kubernetes.Clientset
 	// Filter out terminating pods
 	activePods := []corev1.Pod{}
 	for _, pod := range pods.Items {
+		// Skip pods that are being deleted
+		if pod.DeletionTimestamp != nil {
+			fmt.Printf("Skipping terminating pod '%s' (has deletion timestamp)\n", pod.Name)
+			continue
+		}
+
+		// Skip pods that are not in Running phase
 		if pod.Status.Phase != corev1.PodRunning {
 			fmt.Printf("Skipping non-running pod '%s' (phase: %s)\n", pod.Name, pod.Status.Phase)
 			continue
@@ -494,6 +562,10 @@ func searchSinglePodLogs(ctx context.Context, clientset *kubernetes.Clientset, p
 	}
 
 	// Skip terminating pods
+	if pod.DeletionTimestamp != nil {
+		return false, fmt.Errorf("pod '%s' is being terminated (has deletion timestamp), skipping log search", podName)
+	}
+
 	if pod.Status.Phase != corev1.PodRunning {
 		return false, fmt.Errorf("pod '%s' is not running (phase: %s), skipping log search", podName, pod.Status.Phase)
 	}
