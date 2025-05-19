@@ -20,6 +20,9 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+// Version is the application version, set during build time using ldflags
+var Version = "dev"
+
 // Args holds the command line arguments for the application
 type Args struct {
 	PodName         string
@@ -31,6 +34,7 @@ type Args struct {
 	TimeoutSecs     int
 	Debug           bool
 	Help            bool
+	ShowVersion     bool
 }
 
 // ResourceType represents the type of Kubernetes resource
@@ -52,6 +56,12 @@ type PodSearchResult struct {
 func main() {
 	// Parse command line arguments
 	args := parseArgs()
+
+	// Show version if requested
+	if args.ShowVersion {
+		fmt.Printf("klogs-needle version %s\n", Version)
+		os.Exit(0)
+	}
 
 	// Show help if requested
 	if args.Help {
@@ -142,6 +152,8 @@ func parseArgs() Args {
 	flag.BoolVar(&args.Debug, "debug", false, "Enable debug mode to print logs")
 	help := flag.Bool("help", false, "Show help")
 	h := flag.Bool("h", false, "Show help")
+	version := flag.Bool("version", false, "Show version information")
+	v := flag.Bool("v", false, "Show version information")
 
 	// Define custom usage message
 	flag.Usage = func() {
@@ -160,11 +172,19 @@ func parseArgs() Args {
 	// Check for help flag
 	args.Help = *help || *h
 
+	// Check for version flag
+	args.ShowVersion = *version || *v
+
 	return args
 }
 
 // Validate required arguments
 func validateArgs(args Args) error {
+	// Skip validation if showing version or help
+	if args.ShowVersion || args.Help {
+		return nil
+	}
+
 	// Check if at least one resource type is specified
 	if args.PodName == "" && args.DeploymentName == "" && args.StatefulSetName == "" {
 		return fmt.Errorf("either pod name, deployment name, or statefulset name is required")
@@ -267,7 +287,7 @@ func searchResourcePodLogs(ctx context.Context, clientset *kubernetes.Clientset,
 
 	// Start a goroutine for each pod
 	for _, pod := range pods {
-// Skip terminating pods
+		// Skip terminating pods
 		if pod.DeletionTimestamp != nil {
 			fmt.Printf("Skipping terminating pod '%s'\n", pod.Name)
 			continue

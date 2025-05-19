@@ -50,6 +50,9 @@ cd klogs-needle
 
 # Build the binary
 go build -o klogs-needle
+
+# Build with version information
+go build -ldflags="-X 'main.Version=v1.0.0'" -o klogs-needle
 ```
 
 ### Using Go Install
@@ -82,6 +85,8 @@ Options:
         Enable debug mode to print logs
   -h, -help
         Show help
+  -v, -version
+        Show version information
 ```
 
 ## 📝 Examples
@@ -147,6 +152,7 @@ klogs-needle is configured through command-line arguments. Here's a detailed exp
 | `-timeout` | Timeout in seconds | `60` | No |
 | `-debug` | Enable debug mode to print logs | `false` | No |
 | `-h`, `-help` | Show help | `false` | No |
+| `-v`, `-version` | Show version information | `false` | No |
 
 ## 🚦 Exit Codes
 
