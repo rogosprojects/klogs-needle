@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2025-05-19
+### :recycle: Refactors
+- [`42ba2d0`](https://github.com/rogosprojects/klogs-needle/commit/42ba2d0b30e49b936af8714a274321eb96e1e047) - use ReplicaSets to find out Deployment's Pod *(commit by [@rogosprojects](https://github.com/rogosprojects))*
+
+
 ## [0.1.5] - 2025-05-19
 ### :bug: Bug Fixes
 - [`6606e67`](https://github.com/rogosprojects/klogs-needle/commit/6606e6752af849290ba9522416e6e6bebbee8b54) - identify and skip pods in not-running state *(commit by [@rogosprojects](https://github.com/rogosprojects))*
@@ -21,3 +26,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [0.1.4]: https://github.com/rogosprojects/klogs-needle/compare/0.1.3...0.1.4
 [0.1.5]: https://github.com/rogosprojects/klogs-needle/compare/0.1.4...0.1.5
+[0.1.6]: https://github.com/rogosprojects/klogs-needle/compare/0.1.5...0.1.6
