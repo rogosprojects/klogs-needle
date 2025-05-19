@@ -267,6 +267,11 @@ func searchResourcePodLogs(ctx context.Context, clientset *kubernetes.Clientset,
 
 	// Start a goroutine for each pod
 	for _, pod := range pods {
+// Skip terminating pods
+		if pod.DeletionTimestamp != nil {
+			fmt.Printf("Skipping terminating pod '%s'\n", pod.Name)
+			continue
+		}
 		wg.Add(1)
 		go func(pod corev1.Pod) {
 			// Ensure WaitGroup is decremented even if panic occurs
