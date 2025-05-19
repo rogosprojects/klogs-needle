@@ -529,7 +529,19 @@ func getPodsFromStatefulSet(ctx context.Context, clientset *kubernetes.Clientset
 		return nil, fmt.Errorf("failed to list pods for statefulset '%s': %v", statefulSetName, err)
 	}
 
-	// Filter out terminating pods
+	// Get the current revision and update revision from the StatefulSet status
+	currentRevision := statefulSet.Status.CurrentRevision
+	updateRevision := statefulSet.Status.UpdateRevision
+
+	// If updateRevision is set and different from currentRevision, a rolling update is in progress
+	isRollingUpdate := updateRevision != "" && updateRevision != currentRevision
+
+	if isRollingUpdate {
+		fmt.Printf("StatefulSet '%s' is undergoing a rolling update (current: %s, update: %s)\n",
+			statefulSetName, currentRevision, updateRevision)
+	}
+
+	// Filter out terminating pods and ensure they belong to the StatefulSet
 	activePods := []corev1.Pod{}
 	for _, pod := range pods.Items {
 		// Skip pods that are being deleted
@@ -543,6 +555,38 @@ func getPodsFromStatefulSet(ctx context.Context, clientset *kubernetes.Clientset
 			fmt.Printf("Skipping non-running pod '%s' (phase: %s)\n", pod.Name, pod.Status.Phase)
 			continue
 		}
+
+		// Check if this pod is owned by the StatefulSet
+		isOwnedByStatefulSet := false
+		for _, owner := range pod.OwnerReferences {
+			if owner.Kind == "StatefulSet" && owner.Name == statefulSetName {
+				isOwnedByStatefulSet = true
+				break
+			}
+		}
+
+		if !isOwnedByStatefulSet {
+			fmt.Printf("Skipping pod '%s' (not owned by the StatefulSet '%s')\n", pod.Name, statefulSetName)
+			continue
+		}
+
+		// If a rolling update is in progress, check the pod's controller-revision-hash label
+		if isRollingUpdate {
+			// Get the controller-revision-hash label
+			revisionHash, ok := pod.Labels["controller-revision-hash"]
+			if !ok {
+				fmt.Printf("Skipping pod '%s' (missing controller-revision-hash label)\n", pod.Name)
+				continue
+			}
+
+			// During a rolling update, we want to include only pods with the update revision
+			if revisionHash != updateRevision {
+				fmt.Printf("Skipping pod '%s' (old revision: %s, target: %s)\n",
+					pod.Name, revisionHash, updateRevision)
+				continue
+			}
+		}
+
 		activePods = append(activePods, pod)
 	}
 
@@ -550,6 +594,7 @@ func getPodsFromStatefulSet(ctx context.Context, clientset *kubernetes.Clientset
 		return nil, fmt.Errorf("no active pods found for statefulset '%s'", statefulSetName)
 	}
 
+	fmt.Printf("Found %d active pods for StatefulSet '%s'\n", len(activePods), statefulSetName)
 	return activePods, nil
 }
 
