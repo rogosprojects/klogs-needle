@@ -434,9 +434,11 @@ func getPodsFromDeployment(ctx context.Context, clientset *kubernetes.Clientset,
 	// Filter out terminating pods
 	activePods := []corev1.Pod{}
 	for _, pod := range pods.Items {
-		if pod.DeletionTimestamp == nil {
-			activePods = append(activePods, pod)
+		if pod.Status.Phase != corev1.PodRunning {
+			fmt.Printf("Skipping non-running pod '%s' (phase: %s)\n", pod.Name, pod.Status.Phase)
+			continue
 		}
+		activePods = append(activePods, pod)
 	}
 
 	if len(activePods) == 0 {
@@ -469,9 +471,11 @@ func getPodsFromStatefulSet(ctx context.Context, clientset *kubernetes.Clientset
 	// Filter out terminating pods
 	activePods := []corev1.Pod{}
 	for _, pod := range pods.Items {
-		if pod.DeletionTimestamp == nil {
-			activePods = append(activePods, pod)
+		if pod.Status.Phase != corev1.PodRunning {
+			fmt.Printf("Skipping non-running pod '%s' (phase: %s)\n", pod.Name, pod.Status.Phase)
+			continue
 		}
+		activePods = append(activePods, pod)
 	}
 
 	if len(activePods) == 0 {
@@ -490,8 +494,8 @@ func searchSinglePodLogs(ctx context.Context, clientset *kubernetes.Clientset, p
 	}
 
 	// Skip terminating pods
-	if pod.DeletionTimestamp != nil {
-		return false, fmt.Errorf("pod '%s' is terminating, skipping log search", podName)
+	if pod.Status.Phase != corev1.PodRunning {
+		return false, fmt.Errorf("pod '%s' is not running (phase: %s), skipping log search", podName, pod.Status.Phase)
 	}
 
 	// Validate container name if provided
