@@ -26,7 +26,8 @@ klogs-needle solves a common problem in Kubernetes deployments: verifying that a
 
 ## ✨ Features
 
-- 🔄 Connects to Kubernetes using in-cluster configuration
+- 🔄 Connects to Kubernetes using in-cluster configuration or local kubeconfig
+- 🌐 Works both inside and outside Kubernetes clusters
 - 📊 Watches logs from a specified pod/container or all pods in a deployment or statefulset
 - 🔍 Searches for a specific string pattern in the logs
 - ✅ Exits with success (0) when the pattern is found
@@ -83,6 +84,10 @@ Options:
         Timeout in seconds (default 60)
   -debug
         Enable debug mode to print logs
+  -kubeconfig string
+        Path to kubeconfig file (optional, defaults to ~/.kube/config)
+  -context string
+        Kubernetes context to use (optional)
   -h, -help
         Show help
   -v, -version
@@ -137,6 +142,21 @@ With debug mode:
 klogs-needle -statefulset my-statefulset -namespace my-namespace -needle "Initialization complete" -timeout 120 -debug
 ```
 
+### Using Outside a Kubernetes Cluster
+
+When running outside a Kubernetes cluster, you can specify a kubeconfig file and context:
+
+```bash
+# Use default kubeconfig with default context
+klogs-needle -pod my-pod -needle "Service started"
+
+# Specify a custom kubeconfig file
+klogs-needle -pod my-pod -kubeconfig /path/to/kubeconfig -needle "Service started"
+
+# Specify a specific Kubernetes context
+klogs-needle -deployment my-deployment -context production -needle "Service started"
+```
+
 ## ⚙️ Configuration
 
 klogs-needle is configured through command-line arguments. Here's a detailed explanation of each option:
@@ -151,6 +171,8 @@ klogs-needle is configured through command-line arguments. Here's a detailed exp
 | `-needle` | Search string/pattern to look for in logs | - | Yes |
 | `-timeout` | Timeout in seconds | `60` | No |
 | `-debug` | Enable debug mode to print logs | `false` | No |
+| `-kubeconfig` | Path to kubeconfig file | `~/.kube/config` | No |
+| `-context` | Kubernetes context to use | - | No |
 | `-h`, `-help` | Show help | `false` | No |
 | `-v`, `-version` | Show version information | `false` | No |
 
@@ -165,9 +187,17 @@ klogs-needle uses the following exit codes to indicate the result of execution:
 | 2 | Error during execution (pod not found, container not found, connection issues) |
 | 3 | Timeout - pattern not found within the specified timeout period |
 
-## 🛠️ Running in Kubernetes
+## 🛠️ Running Inside or Outside Kubernetes
 
-This application is designed to run inside a Kubernetes cluster using the in-cluster configuration. Make sure the pod running this application has appropriate RBAC permissions to read logs from the target pods.
+This application can run both inside and outside a Kubernetes cluster:
+
+### Running Inside a Kubernetes Cluster
+
+When running inside a Kubernetes cluster, the application automatically uses the in-cluster configuration. Make sure the pod running this application has appropriate RBAC permissions to read logs from the target pods.
+
+### Running Outside a Kubernetes Cluster
+
+When running outside a Kubernetes cluster, the application automatically detects this and uses your local kubeconfig file. You can specify a custom kubeconfig file path or Kubernetes context.
 
 ### Example Kubernetes Job
 

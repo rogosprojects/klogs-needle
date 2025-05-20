@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -18,6 +19,8 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
 )
 
 // Version is the application version, set during build time using ldflags
@@ -35,6 +38,8 @@ type Args struct {
 	Debug           bool
 	Help            bool
 	ShowVersion     bool
+	KubeConfig      string
+	KubeContext     string
 }
 
 // ResourceType represents the type of Kubernetes resource
@@ -77,7 +82,7 @@ func main() {
 	}
 
 	// Create Kubernetes client
-	clientset, err := createK8sClient()
+	clientset, err := createK8sClient(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating Kubernetes client: %v\n", err)
 		os.Exit(1)
@@ -141,6 +146,12 @@ func main() {
 func parseArgs() Args {
 	args := Args{}
 
+	// Default kubeconfig path
+	var defaultKubeconfig string
+	if home := homedir.HomeDir(); home != "" {
+		defaultKubeconfig = filepath.Join(home, ".kube", "config")
+	}
+
 	flag.StringVar(&args.PodName, "pod", "", "Pod name (required if deployment and statefulset not specified)")
 	flag.StringVar(&args.DeploymentName, "deployment", "", "Deployment name (required if pod and statefulset not specified)")
 	flag.StringVar(&args.StatefulSetName, "statefulset", "", "StatefulSet name (required if pod and deployment not specified)")
@@ -149,6 +160,8 @@ func parseArgs() Args {
 	flag.StringVar(&args.SearchPattern, "needle", "", "Search string/pattern to look for in logs (required)")
 	flag.IntVar(&args.TimeoutSecs, "timeout", 60, "Timeout in seconds (optional)")
 	flag.BoolVar(&args.Debug, "debug", false, "Enable debug mode to print logs")
+	flag.StringVar(&args.KubeConfig, "kubeconfig", defaultKubeconfig, "Path to kubeconfig file (optional, defaults to ~/.kube/config)")
+	flag.StringVar(&args.KubeContext, "context", "", "Kubernetes context to use (optional)")
 	help := flag.Bool("help", false, "Show help")
 	h := flag.Bool("h", false, "Show help")
 	version := flag.Bool("version", false, "Show version information")
@@ -164,6 +177,7 @@ func parseArgs() Args {
 		fmt.Fprintf(os.Stderr, "  %s -pod my-pod -namespace my-namespace -needle \"Service started\" -timeout 60\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s -deployment my-deployment -namespace my-namespace -needle \"Service started\" -timeout 60\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s -statefulset my-statefulset -namespace my-namespace -needle \"Service started\" -timeout 60\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -pod my-pod -kubeconfig /path/to/kubeconfig -context my-context -needle \"Service started\"\n", os.Args[0])
 	}
 
 	flag.Parse()
@@ -215,12 +229,38 @@ func validateArgs(args Args) error {
 	return nil
 }
 
-// Create Kubernetes client using in-cluster configuration
-func createK8sClient() (*kubernetes.Clientset, error) {
-	// Use in-cluster config
-	config, err := rest.InClusterConfig()
+// Create Kubernetes client using in-cluster or out-of-cluster configuration
+func createK8sClient(args Args) (*kubernetes.Clientset, error) {
+	var config *rest.Config
+	var err error
+
+	// Try in-cluster config first
+	config, err = rest.InClusterConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create in-cluster config: %v", err)
+		// If in-cluster config fails, try using kubeconfig file
+		fmt.Println("Not running inside a Kubernetes cluster, using local kubeconfig")
+
+		// Check if kubeconfig file exists
+		if _, err := os.Stat(args.KubeConfig); os.IsNotExist(err) {
+			return nil, fmt.Errorf("kubeconfig file not found at %s: %v", args.KubeConfig, err)
+		}
+
+		// Load kubeconfig
+		loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: args.KubeConfig}
+		configOverrides := &clientcmd.ConfigOverrides{}
+
+		// Set context if provided
+		if args.KubeContext != "" {
+			configOverrides.CurrentContext = args.KubeContext
+		}
+
+		kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+		config, err = kubeConfig.ClientConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load kubeconfig: %v", err)
+		}
+	} else {
+		fmt.Println("Running inside a Kubernetes cluster, using in-cluster configuration")
 	}
 
 	// Create clientset
